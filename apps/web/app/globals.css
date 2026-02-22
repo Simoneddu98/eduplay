@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary: #1e3a5f;
+    --accent: #2e86ab;
+    --orange: #f4a261;
+    --green: #2d9b5a;
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-gray-200;
+  }
+
+  body {
+    @apply bg-white text-gray-900 antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Scrollbar personalizzata */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-400 rounded-full;
+  }
+}
+
+@layer components {
+  /* ── GAMIFICATION ──────────────────────────────────── */
+  .xp-bar {
+    @apply h-2 rounded-full bg-gray-200 overflow-hidden;
+  }
+  .xp-bar-fill {
+    @apply h-full rounded-full bg-gradient-to-r from-orange-400 to-orange-600 transition-all duration-700 ease-out;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold;
+  }
+  .badge-gold {
+    @apply badge bg-yellow-100 text-yellow-800 border border-yellow-300;
+  }
+  .badge-silver {
+    @apply badge bg-gray-100 text-gray-700 border border-gray-300;
+  }
+  .badge-bronze {
+    @apply badge bg-orange-100 text-orange-800 border border-orange-300;
+  }
+
+  .streak-flame {
+    @apply text-orange-500 font-bold tabular-nums;
+  }
+
+  /* ── CARDS ─────────────────────────────────────────── */
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm p-6;
+  }
+  .card-hover {
+    @apply card transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 cursor-pointer;
+  }
+
+  /* ── BUTTONS ───────────────────────────────────────── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-2.5 rounded-lg
+           bg-primary text-white font-semibold text-sm
+           hover:bg-primary/90 active:scale-95
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-6 py-2.5 rounded-lg
+           bg-accent/10 text-accent font-semibold text-sm
+           hover:bg-accent/20 active:scale-95
+           transition-all duration-150;
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center px-6 py-2.5 rounded-lg
+           border-2 border-primary text-primary font-semibold text-sm
+           hover:bg-primary hover:text-white active:scale-95
+           transition-all duration-150;
+  }
+
+  /* ── LEVEL BADGE ───────────────────────────────────── */
+  .level-badge {
+    @apply inline-flex items-center gap-1 px-3 py-1 rounded-full
+           bg-purple-100 text-purple-800 border border-purple-300
+           text-sm font-bold;
+  }
+
+  /* ── LEADERBOARD ───────────────────────────────────── */
+  .leaderboard-row-1 {
+    @apply bg-yellow-50 border-yellow-200;
+  }
+  .leaderboard-row-2 {
+    @apply bg-gray-50 border-gray-200;
+  }
+  .leaderboard-row-3 {
+    @apply bg-orange-50 border-orange-200;
+  }
+}
+
+@layer utilities {
+  .text-primary { color: var(--primary); }
+  .text-accent  { color: var(--accent); }
+  .bg-primary   { background-color: var(--primary); }
+  .bg-accent    { background-color: var(--accent); }
+}
