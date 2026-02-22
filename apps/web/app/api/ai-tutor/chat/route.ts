@@ -1,39 +1,138 @@
+/**
+ * AI Tutor — Chat API Route
+ *
+ * Pipeline:
+ *  1. Embedding della domanda → Ollama (nomic-embed-text) direttamente
+ *  2. Similarity search → Supabase pgvector (match_documents RPC)
+ *  3. Chat con contesto RAG → OpenWebUI (OpenAI-compatible) via LangChain
+ *  4. Streaming SSE → client
+ */
+
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
+import { ChatOpenAI } from "@langchain/openai";
+import {
+  ChatPromptTemplate,
+  MessagesPlaceholder,
+  SystemMessagePromptTemplate,
+  HumanMessagePromptTemplate,
+} from "@langchain/core/prompts";
+import { HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages";
+import { StringOutputParser } from "@langchain/core/output_parsers";
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3.1:8b";
-const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL ?? "nomic-embed-text";
+// ── Config ────────────────────────────────────────────────────────────────
+const OPENWEBUI_BASE_URL =
+  process.env.OPENWEBUI_BASE_URL ?? "http://localhost:8080";
+const OPENWEBUI_API_KEY =
+  process.env.OPENWEBUI_API_KEY ?? "not-required";
+const OLLAMA_BASE_URL =
+  process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+const OLLAMA_EMBED_MODEL =
+  process.env.OLLAMA_EMBED_MODEL ?? "nomic-embed-text";
+const CHAT_MODEL =
+  process.env.OLLAMA_MODEL ?? "llama3.1";
 
-const SYSTEM_PROMPT = `Sei un AI Tutor esperto per una piattaforma di apprendimento gamificata chiamata EduPlay.
-Aiuti studenti con corsi di Digital Marketing, Intelligenza Artificiale e Vendite.
+const SYSTEM_PROMPT = `Sei un AI Tutor esperto per EduPlay, una piattaforma di apprendimento gamificata.
+Aiuti studenti italiani con corsi di Digital Marketing, Intelligenza Artificiale e Vendite.
 
-REGOLE:
+REGOLE FONDAMENTALI:
 - Rispondi SEMPRE in italiano
-- Sii conciso ma esaustivo
-- Usa esempi pratici e concreti
-- Incoraggia lo studente
-- Se hai contesto RAG, basati su quello per rispondere
-- Se non sai qualcosa, dillo onestamente
+- Sii conciso ma completo (max 350 parole)
+- Usa esempi pratici e concreti legati al marketing/AI/sales
+- Incoraggia sempre lo studente
+- Se hai contesto dai materiali del corso, usalo come fonte primaria
+- Se non conosci qualcosa, dillo chiaramente senza inventare
 
 STILE:
-- Tono amichevole ma professionale
-- Usa liste e struttura quando utile
-- Massimo 400 parole per risposta`;
+- Tono amichevole e professionale
+- Usa liste (con •) quando hai più di 2 elementi
+- Evidenzia concetti chiave in **grassetto**
+- Termina con un'osservazione motivante o una domanda di approfondimento
+
+{rag_context}`;
 
 interface ChatBody {
   sessionId?: string;
-  courseId?: string;
+  courseId?: string | null;
   message: string;
-  history: { role: string; content: string }[];
+  history: { role: "user" | "assistant"; content: string }[];
 }
 
+// ── Embedding via Ollama diretto ─────────────────────────────────────────
+async function getEmbedding(text: string): Promise<number[] | null> {
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: OLLAMA_EMBED_MODEL, prompt: text }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.embedding ?? null;
+  } catch (err) {
+    console.warn("[RAG] Embedding failed:", err);
+    return null;
+  }
+}
+
+// ── pgvector similarity search ────────────────────────────────────────────
+async function retrieveRAGContext(
+  embedding: number[],
+  courseId: string | null | undefined
+): Promise<string> {
+  try {
+    const admin = createAdminClient();
+    const { data: docs, error } = await admin.rpc("match_documents", {
+      query_embedding: embedding,
+      match_threshold: 0.55,
+      match_count: 4,
+      filter_course_id: courseId ?? null,
+    });
+
+    if (error || !docs?.length) return "";
+
+    const context = docs
+      .map(
+        (d: any, i: number) =>
+          `[Fonte ${i + 1}${d.title ? ` — ${d.title}` : ""}]\n${
+            d.content?.slice(0, 600) ?? ""
+          }`
+      )
+      .join("\n\n");
+
+    return `\n\nCONTESTO DAL MATERIALE DEL CORSO:\n${context}\n\nUsa queste informazioni come riferimento primario per rispondere.`;
+  } catch (err) {
+    console.warn("[RAG] Vector search failed:", err);
+    return "";
+  }
+}
+
+// ── LangChain ChatOpenAI → OpenWebUI ─────────────────────────────────────
+function buildLLM(streaming: boolean) {
+  return new ChatOpenAI({
+    openAIApiKey: OPENWEBUI_API_KEY,
+    modelName: CHAT_MODEL,
+    streaming,
+    temperature: 0.7,
+    maxTokens: 700,
+    configuration: {
+      baseURL: `${OPENWEBUI_BASE_URL}/api`,
+      defaultHeaders: {
+        Authorization: `Bearer ${OPENWEBUI_API_KEY}`,
+      },
+    },
+  });
+}
+
+// ── Main handler ──────────────────────────────────────────────────────────
 export async function POST(req: Request) {
+  // Auth check
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   if (!user) {
     return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
   }
@@ -45,152 +144,120 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Payload non valido" }, { status: 400 });
   }
 
-  const { message, courseId, history = [] } = body;
-
+  const { message, courseId, history = [], sessionId } = body;
   if (!message?.trim()) {
     return NextResponse.json({ error: "Messaggio vuoto" }, { status: 400 });
   }
 
-  // --- Step 1: Generate embedding for the user's message ---
+  // ── Step 1: Embedding + RAG ────────────────────────────────────────────
   let ragContext = "";
-  try {
-    const embedRes = await fetch(`${OLLAMA_BASE_URL}/api/embeddings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_EMBED_MODEL,
-        prompt: message,
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (embedRes.ok) {
-      const embedData = await embedRes.json();
-      const embedding = embedData.embedding;
-
-      if (embedding && Array.isArray(embedding)) {
-        // --- Step 2: Similarity search in pgvector ---
-        const { data: docs } = await supabase.rpc("match_documents", {
-          query_embedding: embedding,
-          match_threshold: 0.6,
-          match_count: 3,
-          filter_course_id: courseId ?? null,
-        });
-
-        if (docs && docs.length > 0) {
-          ragContext =
-            "\n\n---CONTESTO DAL MATERIALE DEL CORSO---\n" +
-            docs
-              .map(
-                (d: any, i: number) =>
-                  `[${i + 1}] ${d.content?.slice(0, 500) ?? ""}`
-              )
-              .join("\n\n") +
-            "\n---FINE CONTESTO---\n\n";
-        }
-      }
-    }
-  } catch (err) {
-    // RAG failure is non-fatal — continue without context
-    console.warn("RAG/embedding failed:", err);
+  const embedding = await getEmbedding(message);
+  if (embedding) {
+    ragContext = await retrieveRAGContext(embedding, courseId);
   }
 
-  // --- Step 3: Build messages for Ollama ---
-  const ollamaMessages = [
-    { role: "system", content: SYSTEM_PROMPT + ragContext },
-    ...history.slice(-6).map((h) => ({
-      role: h.role === "user" ? "user" : "assistant",
-      content: h.content,
-    })),
-    { role: "user", content: message },
+  // ── Step 2: Build LangChain messages ─────────────────────────────────
+  const systemContent = SYSTEM_PROMPT.replace(
+    "{rag_context}",
+    ragContext || ""
+  );
+
+  const langchainHistory = history.slice(-6).map((m) =>
+    m.role === "user"
+      ? new HumanMessage(m.content)
+      : new AIMessage(m.content)
+  );
+
+  const messages = [
+    new SystemMessage(systemContent),
+    ...langchainHistory,
+    new HumanMessage(message),
   ];
 
-  // --- Step 4: Call Ollama (streaming) ---
-  try {
-    const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages: ollamaMessages,
-        stream: true,
-        options: {
-          temperature: 0.7,
-          top_p: 0.9,
-          num_predict: 600,
-        },
-      }),
-    });
+  // ── Step 3: Stream via OpenWebUI ─────────────────────────────────────
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (chunk: string) =>
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`)
+        );
 
-    if (!ollamaRes.ok) {
-      const errText = await ollamaRes.text();
-      console.error("Ollama error:", errText);
-      throw new Error(`Ollama returned ${ollamaRes.status}`);
-    }
+      try {
+        const llm = buildLLM(true);
+        let fullResponse = "";
 
-    // Pipe Ollama's NDJSON stream → SSE stream to client
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = ollamaRes.body!.getReader();
-        const decoder = new TextDecoder();
+        const streamResult = await llm.stream(messages);
 
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+        for await (const chunk of streamResult) {
+          const token =
+            typeof chunk.content === "string"
+              ? chunk.content
+              : Array.isArray(chunk.content)
+              ? chunk.content
+                  .map((c: any) => (typeof c === "string" ? c : c.text ?? ""))
+                  .join("")
+              : "";
 
-            const text = decoder.decode(value, { stream: true });
-            const lines = text.split("\n").filter(Boolean);
-
-            for (const line of lines) {
-              try {
-                const parsed = JSON.parse(line);
-                if (parsed.message?.content) {
-                  const chunk = `data: ${JSON.stringify({ content: parsed.message.content })}\n\n`;
-                  controller.enqueue(encoder.encode(chunk));
-                }
-                if (parsed.done) {
-                  controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-                }
-              } catch {
-                // Skip malformed JSON lines
-              }
-            }
+          if (token) {
+            fullResponse += token;
+            send(token);
           }
-        } catch (err) {
-          const errChunk = `data: ${JSON.stringify({ content: "\n\n⚠️ Errore nella risposta del modello." })}\n\n`;
-          controller.enqueue(encoder.encode(errChunk));
         }
 
-        controller.close();
-      },
-    });
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  } catch (ollamaErr: any) {
-    console.error("Ollama connection error:", ollamaErr);
+        // Persist to session (non-blocking)
+        if (sessionId && fullResponse) {
+          const admin = createAdminClient();
+          const updatedMsgs = [
+            ...history.slice(-8),
+            { role: "user", content: message, timestamp: new Date() },
+            {
+              role: "assistant",
+              content: fullResponse,
+              timestamp: new Date(),
+            },
+          ];
+          admin
+            .from("ai_chat_sessions")
+            .update({
+              messages_json: updatedMsgs,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", sessionId)
+            .then(() => {});
+        }
+      } catch (err: any) {
+        console.error("[AI Tutor] LLM error:", err?.message ?? err);
 
-    // Fallback: return a helpful error message
-    const fallbackMsg = `⚠️ Non riesco a connettermi al modello AI in questo momento.
+        const isConnectionError =
+          err?.message?.includes("ECONNREFUSED") ||
+          err?.message?.includes("fetch failed") ||
+          err?.message?.includes("ENOTFOUND");
 
-**Per usare l'AI Tutor:**
-1. Installa Ollama: https://ollama.com
-2. Avvia il server: \`ollama serve\`
-3. Scarica il modello: \`ollama pull ${OLLAMA_MODEL}\`
-4. Ricarica questa pagina
+        const errorMsg = isConnectionError
+          ? `\n\n⚠️ **OpenWebUI non raggiungibile** su \`${OPENWEBUI_BASE_URL}\`.\n\n` +
+            `Verifica che OpenWebUI sia in esecuzione:\n` +
+            `• \`ollama serve\` nel terminale\n` +
+            `• Poi apri OpenWebUI e assicurati che sia attivo sulla porta ${OPENWEBUI_BASE_URL.split(":").pop()}\n\n` +
+            `In alternativa aggiorna \`OPENWEBUI_BASE_URL\` nell'env con la porta corretta.`
+          : `\n\n⚠️ Errore nella risposta: ${err?.message ?? "sconosciuto"}`;
 
-Nel frattempo, puoi consultare i materiali del corso nelle lezioni.`;
+        send(errorMsg);
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      }
 
-    return NextResponse.json(
-      { response: fallbackMsg, error: "ollama_unavailable" },
-      { status: 200 }
-    );
-  }
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no", // disabilita buffering nginx
+    },
+  });
 }
