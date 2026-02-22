@@ -62,3 +62,7 @@ coverage/
 # Misc
 *.pem
 _tmp_*
+
+# Git bundles
+*.bundle
+PUSH-TO-GITHUB.command
