@@ -12,6 +12,10 @@ import {
   Sparkles,
   RefreshCcw,
   ChevronDown,
+  Paperclip,
+  Info,
+  MessageSquare,
+  X,
 } from "lucide-react";
 
 interface Message {
@@ -42,6 +46,7 @@ export default function AITutorPage() {
   const [courses, setCourses] = useState<any[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<string | null>(courseId);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [infoPanelOpen, setInfoPanelOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -58,22 +63,22 @@ export default function AITutorPage() {
   }, [messages, isAtBottom]);
 
   const initSession = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Create or load chat session
     const { data: existing } = await supabase
       .from("ai_chat_sessions")
-      .select("id, messages_json")
+      .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (existing && Array.isArray(existing.messages_json)) {
+    if (existing && Array.isArray(existing.messages)) {
       setSessionId(existing.id);
-      // Restore recent messages (last 10)
-      const restored: Message[] = (existing.messages_json as any[])
+      const restored: Message[] = (existing.messages as any[])
         .slice(-10)
         .map((m: any) => ({
           id: m.id ?? crypto.randomUUID(),
@@ -85,11 +90,14 @@ export default function AITutorPage() {
         setMessages(restored);
       }
     } else {
-      // Create new session
       const { data: newSession } = await supabase
         .from("ai_chat_sessions")
-        .insert({ user_id: user.id, course_id: selectedCourse, messages_json: [] })
-        .select("id")
+        .insert({
+          user_id: user.id,
+          course_id: selectedCourse,
+          messages: [],
+        })
+        .select("*")
         .single();
       if (newSession) setSessionId(newSession.id);
     }
@@ -98,7 +106,7 @@ export default function AITutorPage() {
   const loadCourses = async () => {
     const { data } = await supabase
       .from("courses")
-      .select("id, title, category")
+      .select("*")
       .eq("is_published", true)
       .order("category");
     setCourses(data ?? []);
@@ -132,7 +140,6 @@ export default function AITutorPage() {
       };
       setMessages((prev) => [...prev, userMsg]);
 
-      // Add placeholder for assistant
       const assistantId = crypto.randomUUID();
       setMessages((prev) => [
         ...prev,
@@ -164,7 +171,6 @@ export default function AITutorPage() {
           throw new Error(`HTTP ${res.status}`);
         }
 
-        // Handle streaming response
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
         let fullContent = "";
@@ -175,7 +181,6 @@ export default function AITutorPage() {
             if (done) break;
             const chunk = decoder.decode(value, { stream: true });
 
-            // Parse SSE chunks
             const lines = chunk.split("\n");
             for (const line of lines) {
               if (line.startsWith("data: ")) {
@@ -194,7 +199,6 @@ export default function AITutorPage() {
                     );
                   }
                 } catch {
-                  // Might be raw text if not streaming JSON
                   fullContent += data;
                   setMessages((prev) =>
                     prev.map((m) =>
@@ -208,7 +212,6 @@ export default function AITutorPage() {
             }
           }
         } else {
-          // Fallback: read as JSON
           const data = await res.json();
           fullContent = data.response ?? data.content ?? "Nessuna risposta.";
           setMessages((prev) =>
@@ -218,7 +221,6 @@ export default function AITutorPage() {
           );
         }
 
-        // Finalize
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -227,16 +229,28 @@ export default function AITutorPage() {
           )
         );
 
-        // Save to session
         if (sessionId) {
           const updatedMessages = [
             ...messages.slice(-8),
-            { id: userMsg.id, role: "user", content, timestamp: userMsg.timestamp },
-            { id: assistantId, role: "assistant", content: fullContent, timestamp: new Date() },
+            {
+              id: userMsg.id,
+              role: "user",
+              content,
+              timestamp: userMsg.timestamp,
+            },
+            {
+              id: assistantId,
+              role: "assistant",
+              content: fullContent,
+              timestamp: new Date(),
+            },
           ];
           await supabase
             .from("ai_chat_sessions")
-            .update({ messages_json: updatedMessages, updated_at: new Date().toISOString() })
+            .update({
+              messages: updatedMessages,
+              updated_at: new Date().toISOString(),
+            })
             .eq("id", sessionId);
         }
       } catch (err: any) {
@@ -246,7 +260,7 @@ export default function AITutorPage() {
               ? {
                   ...m,
                   content:
-                    "⚠️ Errore nella risposta. Assicurati che Ollama sia in esecuzione (`ollama serve`) e riprova.",
+                    "Errore nella risposta. Assicurati che Ollama sia in esecuzione (`ollama serve`) e riprova.",
                   isStreaming: false,
                 }
               : m
@@ -265,7 +279,7 @@ export default function AITutorPage() {
     if (sessionId) {
       await supabase
         .from("ai_chat_sessions")
-        .update({ messages_json: [] })
+        .update({ messages: [] })
         .eq("id", sessionId);
     }
   };
@@ -277,170 +291,396 @@ export default function AITutorPage() {
     }
   };
 
+  const selectedCourseName = courses.find(
+    (c: any) => c.id === selectedCourse
+  )?.title;
+
   return (
-    <div className="max-w-4xl mx-auto h-[calc(100vh-8rem)] flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-            <Bot className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="font-bold text-gray-900">AI Tutor</h1>
-            <p className="text-xs text-gray-400">Powered by Ollama + RAG</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Course selector */}
-          <div className="relative">
-            <select
-              value={selectedCourse ?? ""}
-              onChange={(e) => setSelectedCourse(e.target.value || null)}
-              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 pr-7 text-gray-600 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <option value="">Tutti i corsi</option>
-              {courses.map((c: any) => (
-                <option key={c.id} value={c.id}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          </div>
-
-          {/* Clear */}
-          <button
-            onClick={clearChat}
-            title="Nuova conversazione"
-            className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <RefreshCcw className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1"
-      >
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-10">
-            <Sparkles className="w-12 h-12 text-primary/30 mb-4" />
-            <h2 className="text-lg font-semibold text-gray-700 mb-1">
-              Ciao! Sono il tuo AI Tutor
-            </h2>
-            <p className="text-gray-400 text-sm mb-6 max-w-sm">
-              Posso aiutarti con domande sui corsi di Digital Marketing, AI e Sales. Usa il contesto RAG per risposte precise.
-            </p>
-
-            {/* Starter prompts */}
-            <div className="grid grid-cols-2 gap-2 w-full max-w-lg">
-              {STARTER_PROMPTS.map((p) => (
-                <button
-                  key={p}
-                  onClick={() => sendMessage(p)}
-                  className="text-left text-sm px-3 py-2.5 rounded-xl border border-gray-200 hover:border-primary/40 hover:bg-primary/5 text-gray-600 hover:text-primary transition-all"
-                >
-                  {p}
-                </button>
-              ))}
+    <div className="h-[calc(100vh-6rem)] flex gap-0 lg:gap-6">
+      {/* ── Chat Panel (left / main) ─────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Chat Header */}
+        <div className="glass-card px-5 py-3 mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-700 to-indigo-600 flex items-center justify-center animate-pulse-glow">
+                <Bot className="w-5 h-5 text-white" aria-hidden="true" />
+              </div>
+              <div
+                className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white"
+                aria-hidden="true"
+              />
             </div>
+            <div>
+              <h1 className="font-bold font-poppins text-slate-900 text-base">
+                Tutor AI EduPlay
+              </h1>
+              <p className="text-xs text-green-600 font-medium">Online</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Course selector */}
+            <div className="relative hidden sm:block">
+              <select
+                value={selectedCourse ?? ""}
+                onChange={(e) => setSelectedCourse(e.target.value || null)}
+                className="text-sm border border-blue-100 rounded-xl px-3 py-1.5 pr-8 text-slate-600 appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all duration-200 cursor-pointer"
+                aria-label="Seleziona corso"
+              >
+                <option value="">Tutti i corsi</option>
+                {courses.map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                aria-hidden="true"
+              />
+            </div>
+
+            {/* Info panel toggle (mobile) */}
+            <button
+              onClick={() => setInfoPanelOpen(!infoPanelOpen)}
+              className="lg:hidden p-2 rounded-xl hover:bg-blue-50 text-slate-500 hover:text-blue-700 transition-colors duration-200 cursor-pointer"
+              aria-label="Mostra informazioni"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+
+            {/* Clear chat */}
+            <button
+              onClick={clearChat}
+              title="Nuova conversazione"
+              className="p-2 rounded-xl hover:bg-blue-50 text-slate-400 hover:text-blue-700 transition-colors duration-200 cursor-pointer"
+              aria-label="Nuova conversazione"
+            >
+              <RefreshCcw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Messages Area */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1 scroll-smooth"
+        >
+          {/* Empty state */}
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-center py-10">
+              <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center mb-6">
+                <Bot
+                  className="w-10 h-10 text-blue-600"
+                  aria-hidden="true"
+                />
+              </div>
+              <h2 className="text-xl font-bold font-poppins text-slate-800 mb-2">
+                Ciao! Come posso aiutarti oggi?
+              </h2>
+              <p className="text-slate-400 text-sm mb-8 max-w-sm leading-relaxed">
+                Posso aiutarti con domande sui corsi di Digital Marketing, AI e
+                Sales. Seleziona un corso per risposte ancora piu precise.
+              </p>
+
+              {/* Suggested questions chips */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
+                {STARTER_PROMPTS.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => sendMessage(p)}
+                    className="text-left text-sm px-4 py-3 rounded-xl border border-blue-100 hover:border-blue-300 hover:bg-blue-50 text-slate-600 hover:text-blue-700 transition-all duration-200 cursor-pointer flex items-center gap-2"
+                  >
+                    <MessageSquare
+                      className="w-3.5 h-3.5 text-blue-400 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>{p}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Scroll to bottom */}
+        {!isAtBottom && (
+          <div className="flex justify-center -mt-14 mb-2 relative z-10">
+            <button
+              onClick={() => {
+                setIsAtBottom(true);
+                scrollToBottom();
+              }}
+              className="glass-card px-3 py-1.5 flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-700 transition-all duration-200 cursor-pointer shadow-md"
+              aria-label="Scorri in basso"
+            >
+              <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+              Nuovi messaggi
+            </button>
           </div>
         )}
 
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Scroll to bottom button */}
-      {!isAtBottom && (
-        <button
-          onClick={() => { setIsAtBottom(true); scrollToBottom(); }}
-          className="absolute bottom-28 right-8 bg-white border border-gray-200 rounded-full p-2 shadow-sm hover:shadow-md transition-all text-gray-500 hover:text-primary"
-        >
-          <ChevronDown className="w-4 h-4" />
-        </button>
-      )}
-
-      {/* Input area */}
-      <div className="card !p-3">
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Fai una domanda al tutor... (Invio per inviare, Shift+Invio per nuova riga)"
-            rows={1}
-            className="flex-1 resize-none border-0 focus:outline-none text-sm text-gray-700 placeholder-gray-300 max-h-32 overflow-y-auto"
-            style={{ minHeight: "36px" }}
-            onInput={(e) => {
-              const t = e.target as HTMLTextAreaElement;
-              t.style.height = "auto";
-              t.style.height = Math.min(t.scrollHeight, 128) + "px";
-            }}
-          />
-          <button
-            onClick={() => sendMessage()}
-            disabled={!input.trim() || isLoading}
-            className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
-          </button>
+        {/* Input Area */}
+        <div className="glass-card p-3">
+          <div className="flex items-end gap-2">
+            <button
+              className="shrink-0 p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors duration-200 cursor-pointer"
+              aria-label="Allega file"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Fai una domanda al tutor..."
+              rows={1}
+              className="flex-1 resize-none border-0 bg-transparent focus:outline-none text-sm text-slate-700 placeholder-slate-300 max-h-32 overflow-y-auto leading-relaxed"
+              style={{ minHeight: "36px" }}
+              onInput={(e) => {
+                const t = e.target as HTMLTextAreaElement;
+                t.style.height = "auto";
+                t.style.height = Math.min(t.scrollHeight, 128) + "px";
+              }}
+              aria-label="Scrivi un messaggio"
+            />
+            <button
+              onClick={() => sendMessage()}
+              disabled={!input.trim() || isLoading}
+              className="shrink-0 btn-primary !px-3 !py-2 !rounded-xl flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Invia messaggio"
+            >
+              {isLoading ? (
+                <Loader2
+                  className="w-4 h-4 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Send className="w-4 h-4" aria-hidden="true" />
+              )}
+            </button>
+          </div>
+          <p className="text-xs text-slate-300 mt-2 flex items-center gap-1">
+            <Sparkles className="w-3 h-3" aria-hidden="true" />
+            Powered by Ollama (Llama 3.1 8B) con RAG su pgvector
+          </p>
         </div>
-        <p className="text-xs text-gray-300 mt-1.5">
-          ⚡ Powered by Ollama (Llama 3.1 8B) · RAG su pgvector
-        </p>
       </div>
+
+      {/* ── Info / Context Panel (right) ─────────────────── */}
+      {/* Desktop: always visible. Mobile: overlay */}
+      <aside
+        className={`
+          ${infoPanelOpen ? "fixed inset-0 z-50 bg-black/20 lg:relative lg:inset-auto lg:z-auto lg:bg-transparent" : "hidden lg:block"}
+          lg:w-[320px] xl:w-[360px] shrink-0
+        `}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setInfoPanelOpen(false);
+        }}
+      >
+        <div
+          className={`
+            ${infoPanelOpen ? "absolute right-0 top-0 bottom-0 w-80 bg-white shadow-2xl p-4 overflow-y-auto" : ""}
+            lg:relative lg:w-full lg:bg-transparent lg:shadow-none lg:p-0
+            flex flex-col gap-4
+          `}
+        >
+          {/* Mobile close button */}
+          {infoPanelOpen && (
+            <button
+              onClick={() => setInfoPanelOpen(false)}
+              className="lg:hidden self-end p-2 rounded-xl hover:bg-blue-50 text-slate-500 transition-colors duration-200 cursor-pointer"
+              aria-label="Chiudi pannello"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+
+          {/* Active context card */}
+          <div className="glass-card p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <BookOpen
+                className="w-4 h-4 text-blue-600"
+                aria-hidden="true"
+              />
+              <h3 className="text-sm font-bold font-poppins text-slate-800">
+                Contesto Attivo
+              </h3>
+            </div>
+            {selectedCourse && selectedCourseName ? (
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
+                  <BookOpen className="w-3 h-3" aria-hidden="true" />
+                  {selectedCourseName}
+                </span>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">
+                Nessun corso selezionato. Le risposte copriranno tutti gli
+                argomenti disponibili.
+              </p>
+            )}
+
+            {/* Mobile course selector */}
+            <div className="sm:hidden mt-3">
+              <div className="relative">
+                <select
+                  value={selectedCourse ?? ""}
+                  onChange={(e) => setSelectedCourse(e.target.value || null)}
+                  className="w-full text-sm border border-blue-100 rounded-xl px-3 py-2 pr-8 text-slate-600 appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all duration-200 cursor-pointer"
+                  aria-label="Seleziona corso"
+                >
+                  <option value="">Tutti i corsi</option>
+                  {courses.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  aria-hidden="true"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* How to use */}
+          <div className="glass-card p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Info className="w-4 h-4 text-blue-600" aria-hidden="true" />
+              <h3 className="text-sm font-bold font-poppins text-slate-800">
+                Come usare il Tutor
+              </h3>
+            </div>
+            <ul className="space-y-2.5 text-xs text-slate-500 leading-relaxed">
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-lg bg-blue-50 flex items-center justify-center shrink-0 mt-0.5 text-blue-600 font-bold text-xs">
+                  1
+                </span>
+                Seleziona un corso per contestualizzare le risposte
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-lg bg-blue-50 flex items-center justify-center shrink-0 mt-0.5 text-blue-600 font-bold text-xs">
+                  2
+                </span>
+                Fai domande specifiche sugli argomenti del corso
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-lg bg-blue-50 flex items-center justify-center shrink-0 mt-0.5 text-blue-600 font-bold text-xs">
+                  3
+                </span>
+                Usa Shift+Invio per andare a capo nel messaggio
+              </li>
+            </ul>
+          </div>
+
+          {/* Available courses list */}
+          <div className="glass-card p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles
+                className="w-4 h-4 text-blue-600"
+                aria-hidden="true"
+              />
+              <h3 className="text-sm font-bold font-poppins text-slate-800">
+                Corsi Disponibili
+              </h3>
+            </div>
+            <div className="space-y-1.5">
+              {courses.map((c: any) => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedCourse(c.id)}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer ${
+                    selectedCourse === c.id
+                      ? "bg-blue-100 text-blue-700"
+                      : "text-slate-500 hover:bg-blue-50 hover:text-blue-600"
+                  }`}
+                >
+                  {c.title}
+                </button>
+              ))}
+              {courses.length === 0 && (
+                <p className="text-xs text-slate-300">
+                  Caricamento corsi...
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }
 
+/* ── Message Bubble Component ──────────────────────────────── */
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex items-start gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
+    <div
+      className={`flex items-start gap-3 ${isUser ? "flex-row-reverse" : ""}`}
+    >
       {/* Avatar */}
       <div
-        className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+        className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
           isUser
-            ? "bg-primary/10 text-primary"
-            : "bg-gradient-to-br from-primary to-accent text-white"
+            ? "bg-blue-600 text-white"
+            : "bg-gradient-to-br from-blue-700 to-indigo-600 text-white"
         }`}
+        aria-hidden="true"
       >
-        {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+        {isUser ? (
+          <User className="w-4 h-4" />
+        ) : (
+          <Bot className="w-4 h-4" />
+        )}
       </div>
 
       {/* Bubble */}
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? "bg-primary text-white rounded-tr-sm"
-            : "bg-white border border-gray-100 text-gray-700 rounded-tl-sm shadow-sm"
+            ? "bg-blue-600 text-white rounded-tr-md"
+            : "glass-card !rounded-tl-md text-slate-700"
         }`}
       >
         {message.content ? (
           <div className="whitespace-pre-wrap">
             {message.content}
             {message.isStreaming && (
-              <span className="inline-block w-1 h-4 bg-current ml-0.5 animate-pulse rounded-sm" />
+              <span
+                className="inline-block w-1.5 h-4 bg-current ml-1 rounded-sm animate-pulse"
+                aria-label="Sta scrivendo"
+              />
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-1.5">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            <span className="text-gray-400 text-xs">Sto pensando...</span>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
+                style={{ animationDelay: "0ms" }}
+              />
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
+                style={{ animationDelay: "150ms" }}
+              />
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
+                style={{ animationDelay: "300ms" }}
+              />
+            </div>
+            <span className="text-slate-400 text-xs">Sto pensando...</span>
           </div>
         )}
       </div>

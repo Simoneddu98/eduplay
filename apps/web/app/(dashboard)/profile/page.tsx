@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import {
   BookOpen,
   CheckCircle2,
@@ -7,15 +8,17 @@ import {
   Zap,
   Trophy,
   Star,
-  Calendar,
   Lock,
+  Settings,
+  Award,
+  TrendingUp,
 } from "lucide-react";
 
 const LEVELS = [
-  { level: 1, name: "Novizio", minXp: 0, color: "text-gray-500", bg: "bg-gray-100" },
+  { level: 1, name: "Novizio", minXp: 0, color: "text-slate-500", bg: "bg-slate-100" },
   { level: 2, name: "Apprendista", minXp: 500, color: "text-blue-600", bg: "bg-blue-100" },
   { level: 3, name: "Praticante", minXp: 1500, color: "text-green-600", bg: "bg-green-100" },
-  { level: 4, name: "Esperto", minXp: 3500, color: "text-yellow-600", bg: "bg-yellow-100" },
+  { level: 4, name: "Esperto", minXp: 3500, color: "text-amber-600", bg: "bg-amber-100" },
   { level: 5, name: "Master", minXp: 7500, color: "text-orange-600", bg: "bg-orange-100" },
   { level: 6, name: "Guru", minXp: 15000, color: "text-purple-600", bg: "bg-purple-100" },
 ];
@@ -40,11 +43,11 @@ function getXpProgress(xp: number) {
   return Math.round((progress / range) * 100);
 }
 
-const BADGE_RARITY: Record<string, { label: string; color: string }> = {
-  common: { label: "Comune", color: "bg-gray-100 text-gray-600" },
-  rare: { label: "Raro", color: "bg-blue-100 text-blue-700" },
-  epic: { label: "Epico", color: "bg-purple-100 text-purple-700" },
-  legendary: { label: "Leggendario", color: "bg-yellow-100 text-yellow-700" },
+const BADGE_RARITY: Record<string, { label: string; color: string; border: string }> = {
+  common: { label: "Comune", color: "bg-slate-100 text-slate-600", border: "border-slate-200" },
+  rare: { label: "Raro", color: "bg-blue-100 text-blue-700", border: "border-blue-200" },
+  epic: { label: "Epico", color: "bg-purple-100 text-purple-700", border: "border-purple-200" },
+  legendary: { label: "Leggendario", color: "bg-amber-100 text-amber-700", border: "border-amber-300" },
 };
 
 function getBadgeRarity(conditionValue: number): keyof typeof BADGE_RARITY {
@@ -64,119 +67,129 @@ export default async function ProfilePage() {
     { data: enrollments },
     { data: userBadges },
     { data: allBadges },
-    { data: recentXp },
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", user.id).single(),
-    supabase.from("enrollments").select("*, courses(title, category)").eq("user_id", user.id),
+    supabase.from("enrollments").select("*, courses(*)").eq("user_id", user.id),
     supabase.from("user_badges").select("*, badges(*)").eq("user_id", user.id).order("earned_at", { ascending: false }),
-    supabase.from("badges").select("*").eq("is_active", true).order("condition_value"),
-    supabase.from("xp_logs").select("amount, reason, created_at").eq("user_id", user.id)
-      .order("created_at", { ascending: false }).limit(10),
+    supabase.from("badges").select("*").order("condition_value"),
   ]);
 
   const xp = profile?.xp_total ?? 0;
   const { current: levelInfo, next: nextLevel } = getLevelInfo(xp);
   const xpProgress = getXpProgress(xp);
   const earnedBadgeIds = new Set((userBadges ?? []).map((ub: any) => ub.badge_id));
-
   const completedCourses = (enrollments ?? []).filter((e: any) => e.progress_pct === 100).length;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      {/* Profile Header */}
-      <div className="card">
-        <div className="flex items-start gap-6">
+    <div className="max-w-5xl mx-auto space-y-6">
+      {/* Profile Header - Glassmorphism */}
+      <div className="glass-card p-6 md:p-8 animate-fade-in-up">
+        <div className="flex flex-col md:flex-row items-start gap-6">
           {/* Avatar */}
           <div className="relative flex-shrink-0">
             {profile?.avatar_url ? (
               <img
                 src={profile.avatar_url}
                 alt={profile.full_name}
-                className="w-20 h-20 rounded-full object-cover"
+                className="w-24 h-24 rounded-2xl object-cover ring-2 ring-blue-200"
               />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-2xl font-bold">
+              <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-blue-800 to-blue-500 flex items-center justify-center text-white text-3xl font-bold ring-2 ring-blue-200">
                 {(profile?.full_name ?? user.email ?? "?")[0].toUpperCase()}
               </div>
             )}
-            <span
-              className={`absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full text-xs font-bold ${levelInfo.bg} ${levelInfo.color}`}
-            >
+            <span className="badge-level absolute -bottom-2 -right-2 shadow-md">
               Lv.{profile?.level ?? 1}
             </span>
           </div>
 
           {/* Info */}
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold text-gray-900">
-              {profile?.full_name ?? "Studente"}
-            </h1>
-            <p className="text-gray-400 text-sm">{user.email}</p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`text-sm font-semibold px-2.5 py-0.5 rounded-full ${levelInfo.bg} ${levelInfo.color}`}>
-                {levelInfo.name}
-              </span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl md:text-3xl font-bold text-blue-900">
+                {profile?.full_name ?? "Studente"}
+              </h1>
               {profile?.role === "admin" && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">Admin</span>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">Admin</span>
               )}
             </div>
+            <p className="text-slate-400 text-sm mt-0.5">{user.email}</p>
 
-            {/* XP bar */}
-            <div className="mt-3 max-w-sm">
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>{xp.toLocaleString("it-IT")} XP</span>
+            <div className="flex items-center gap-2 mt-2">
+              <span className={`px-3 py-1 rounded-full text-sm font-bold ${levelInfo.bg} ${levelInfo.color}`}>
+                {levelInfo.name}
+              </span>
+            </div>
+
+            {/* XP Progress Bar */}
+            <div className="mt-4 max-w-md">
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="font-semibold text-blue-900">{xp.toLocaleString("it-IT")} XP</span>
                 {nextLevel && (
-                  <span>Prossimo: {nextLevel.name} ({nextLevel.minXp.toLocaleString("it-IT")} XP)</span>
+                  <span className="text-slate-400">
+                    Prossimo: {nextLevel.name} ({nextLevel.minXp.toLocaleString("it-IT")} XP)
+                  </span>
                 )}
               </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-primary to-accent rounded-full transition-all"
-                  style={{ width: `${xpProgress}%` }}
-                />
+              <div className="xp-bar">
+                <div className="xp-bar-fill" style={{ width: `${xpProgress}%` }} />
               </div>
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 text-center">
-            <div className="bg-orange-50 rounded-xl px-4 py-3">
-              <Flame className="w-5 h-5 text-orange-500 mx-auto mb-1" />
-              <p className="text-xl font-bold text-orange-600">{profile?.streak_current ?? 0}</p>
-              <p className="text-xs text-gray-400">Streak</p>
-            </div>
-            <div className="bg-yellow-50 rounded-xl px-4 py-3">
-              <span className="text-xl block mb-1">🪙</span>
-              <p className="text-xl font-bold text-yellow-600">{profile?.edu_coins ?? 0}</p>
-              <p className="text-xs text-gray-400">EduCoins</p>
-            </div>
-            <div className="bg-green-50 rounded-xl px-4 py-3">
-              <CheckCircle2 className="w-5 h-5 text-green-500 mx-auto mb-1" />
-              <p className="text-xl font-bold text-green-600">{completedCourses}</p>
-              <p className="text-xs text-gray-400">Corsi finiti</p>
-            </div>
-            <div className="bg-blue-50 rounded-xl px-4 py-3">
-              <Trophy className="w-5 h-5 text-blue-500 mx-auto mb-1" />
-              <p className="text-xl font-bold text-blue-600">{earnedBadgeIds.size}</p>
-              <p className="text-xs text-gray-400">Badge</p>
-            </div>
-          </div>
+          {/* Settings link */}
+          <Link
+            href="/settings"
+            className="btn-outline px-4 py-2 text-sm flex items-center gap-2 flex-shrink-0"
+          >
+            <Settings className="w-4 h-4" />
+            Impostazioni
+          </Link>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 animate-fade-in-up" style={{ animationDelay: "100ms" }}>
+        <div className="glass-card p-4 text-center">
+          <TrendingUp className="w-5 h-5 text-amber-500 mx-auto mb-2" />
+          <p className="text-2xl font-extrabold text-blue-900">{xp.toLocaleString("it-IT")}</p>
+          <p className="text-xs text-slate-400 font-medium">XP Totale</p>
+        </div>
+        <div className="glass-card p-4 text-center">
+          <Star className="w-5 h-5 text-purple-500 mx-auto mb-2" />
+          <p className="text-2xl font-extrabold text-blue-900">{profile?.level ?? 1}</p>
+          <p className="text-xs text-slate-400 font-medium">Livello</p>
+        </div>
+        <div className="glass-card p-4 text-center">
+          <Flame className="w-5 h-5 text-red-500 mx-auto mb-2" />
+          <p className="text-2xl font-extrabold text-blue-900">{profile?.streak_current ?? 0}</p>
+          <p className="text-xs text-slate-400 font-medium">Streak</p>
+        </div>
+        <div className="glass-card p-4 text-center">
+          <CheckCircle2 className="w-5 h-5 text-green-500 mx-auto mb-2" />
+          <p className="text-2xl font-extrabold text-blue-900">{completedCourses}</p>
+          <p className="text-xs text-slate-400 font-medium">Corsi Finiti</p>
+        </div>
+        <div className="glass-card p-4 text-center col-span-2 md:col-span-1">
+          <Trophy className="w-5 h-5 text-amber-500 mx-auto mb-2" />
+          <p className="text-2xl font-extrabold text-blue-900">{earnedBadgeIds.size}</p>
+          <p className="text-xs text-slate-400 font-medium">Badge</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Badges */}
-        <div className="lg:col-span-2">
-          <div className="card">
-            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-yellow-500" />
+        {/* Badges Section */}
+        <div className="lg:col-span-2 animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+          <div className="card p-6">
+            <h2 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
+              <Award className="w-5 h-5 text-amber-500" />
               Badge
-              <span className="text-sm font-normal text-gray-400">
+              <span className="text-sm font-normal text-slate-400">
                 ({earnedBadgeIds.size}/{(allBadges ?? []).length})
               </span>
             </h2>
 
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {(allBadges ?? []).map((badge: any) => {
                 const earned = earnedBadgeIds.has(badge.id);
                 const rarity = getBadgeRarity(badge.condition_value ?? 1);
@@ -187,26 +200,30 @@ export default async function ProfilePage() {
                   <div
                     key={badge.id}
                     title={earned ? badge.description : "Bloccato"}
-                    className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
+                    className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200 ${
                       earned
-                        ? "border-yellow-200 bg-yellow-50/50 hover:bg-yellow-50"
-                        : "border-gray-100 bg-gray-50 opacity-40"
+                        ? `${rarityInfo.border} bg-white hover:shadow-md hover:-translate-y-0.5 cursor-pointer`
+                        : "border-slate-100 bg-slate-50/50 opacity-40"
                     }`}
                   >
-                    <span className={`text-2xl ${earned ? "" : "grayscale"}`}>
-                      {badge.icon ?? "🏆"}
-                    </span>
-                    <p className="text-xs font-semibold text-center text-gray-700 leading-tight">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${earned ? rarityInfo.color : "bg-slate-100"}`}>
+                      {badge.icon_url ? (
+                        <img src={badge.icon_url} alt={badge.name} className={`w-6 h-6 ${earned ? "" : "grayscale opacity-50"}`} />
+                      ) : (
+                        <Award className={`w-5 h-5 ${earned ? "text-amber-500" : "text-slate-300"}`} />
+                      )}
+                    </div>
+                    <p className="text-xs font-bold text-center text-blue-900 leading-tight">
                       {badge.name}
                     </p>
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${rarityInfo.color}`}>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${rarityInfo.color}`}>
                       {rarityInfo.label}
                     </span>
                     {!earned && (
-                      <Lock className="absolute top-1.5 right-1.5 w-3 h-3 text-gray-400" />
+                      <Lock className="absolute top-2 right-2 w-3.5 h-3.5 text-slate-300" />
                     )}
                     {earned && ub?.earned_at && (
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-slate-400">
                         {new Date(ub.earned_at).toLocaleDateString("it-IT")}
                       </p>
                     )}
@@ -217,27 +234,33 @@ export default async function ProfilePage() {
           </div>
         </div>
 
-        {/* Right sidebar */}
-        <div className="space-y-4">
-          {/* Courses enrolled */}
-          <div className="card">
-            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-primary" />
-              Corsi iscritto
+        {/* Right Sidebar */}
+        <div className="space-y-4 animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+          {/* Enrolled Courses */}
+          <div className="card p-5">
+            <h3 className="font-bold text-blue-900 mb-4 flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-blue-800" />
+              Corsi Iscritto
             </h3>
             {(enrollments ?? []).length === 0 ? (
-              <p className="text-gray-400 text-sm">Nessun corso.</p>
+              <p className="text-slate-400 text-sm">Nessun corso.</p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-3">
                 {(enrollments as any[]).map((e: any) => (
-                  <li key={e.id} className="text-sm">
-                    <div className="flex justify-between items-center mb-0.5">
-                      <span className="text-gray-700 font-medium truncate">{e.courses?.title}</span>
-                      <span className="text-primary font-semibold text-xs">{e.progress_pct}%</span>
+                  <li key={e.id}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-sm text-blue-900 font-semibold truncate pr-2">
+                        {e.courses?.title}
+                      </span>
+                      {e.progress_pct === 100 ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      ) : (
+                        <span className="text-xs font-bold text-blue-800">{e.progress_pct}%</span>
+                      )}
                     </div>
-                    <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="xp-bar">
                       <div
-                        className="h-full bg-gradient-to-r from-primary to-accent rounded-full"
+                        className="xp-bar-fill"
                         style={{ width: `${e.progress_pct}%` }}
                       />
                     </div>
@@ -247,26 +270,33 @@ export default async function ProfilePage() {
             )}
           </div>
 
-          {/* Recent XP activity */}
-          <div className="card">
-            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-              <Zap className="w-4 h-4 text-yellow-500" />
-              Attività recente
+          {/* Stats Summary */}
+          <div className="card p-5">
+            <h3 className="font-bold text-blue-900 mb-4 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-500" />
+              Riepilogo
             </h3>
-            {(recentXp ?? []).length === 0 ? (
-              <p className="text-gray-400 text-sm">Nessuna attività.</p>
-            ) : (
-              <ul className="space-y-2">
-                {(recentXp as any[]).map((log: any, i: number) => (
-                  <li key={i} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500 capitalize">
-                      {log.reason?.replace(/_/g, " ") ?? "attività"}
-                    </span>
-                    <span className="text-yellow-600 font-semibold">+{log.amount}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul className="space-y-3">
+              <li className="flex items-center justify-between">
+                <span className="text-sm text-slate-500">Streak attuale</span>
+                <span className="badge-streak flex-shrink-0">
+                  <Flame className="w-3 h-3" />
+                  {profile?.streak_current ?? 0} giorni
+                </span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span className="text-sm text-slate-500">Streak record</span>
+                <span className="text-sm font-bold text-blue-900">
+                  {profile?.streak_longest ?? 0} giorni
+                </span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span className="text-sm text-slate-500">EduCoins</span>
+                <span className="badge-coins flex-shrink-0">
+                  {(profile?.edu_coins ?? 0).toLocaleString()}
+                </span>
+              </li>
+            </ul>
           </div>
         </div>
       </div>
