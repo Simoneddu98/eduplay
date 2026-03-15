@@ -12,6 +12,7 @@ import {
   Settings,
   Zap,
   GraduationCap,
+  PenSquare,
 } from "lucide-react";
 import { clsx } from "clsx";
 
@@ -38,6 +39,10 @@ const navItems = [
   { href: "/missions", icon: Target, label: "Missioni" },
   { href: "/ai-tutor", icon: Bot, label: "AI Tutor" },
   { href: "/profile", icon: UserCircle, label: "Profilo" },
+];
+
+const trainerNavItems = [
+  { href: "/crea-corso", icon: PenSquare, label: "Crea Corso" },
 ];
 
 const LEVEL_XP: Record<number, number> = {
@@ -132,6 +137,41 @@ export default function Sidebar({ profile, isOpen, onClose }: SidebarProps) {
               </Link>
             );
           })}
+
+          {/* Trainer tools */}
+          {profile?.role && ["trainer", "admin"].includes(profile.role) && (
+            <>
+              <div className="pt-3 pb-1 px-3">
+                <p className="text-[10px] font-semibold text-blue-200/50 uppercase tracking-wider">
+                  Strumenti Trainer
+                </p>
+              </div>
+              {trainerNavItems.map(({ href, icon: Icon, label }) => {
+                const active = pathname === href || pathname.startsWith(href + "/");
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={onClose}
+                    className={clsx(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer",
+                      active
+                        ? "bg-purple-500/20 text-purple-200 border-l-2 border-purple-400"
+                        : "text-blue-100 hover:bg-white/10 hover:text-white"
+                    )}
+                  >
+                    <Icon
+                      className={clsx(
+                        "w-5 h-5 flex-shrink-0",
+                        active ? "text-purple-300" : "text-blue-300"
+                      )}
+                    />
+                    {label}
+                  </Link>
+                );
+              })}
+            </>
+          )}
 
           {/* Admin only */}
           {profile?.role === "admin" && (
