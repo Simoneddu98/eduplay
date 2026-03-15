@@ -42,7 +42,7 @@ const navItems = [
 ];
 
 const trainerNavItems = [
-  { href: "/crea-corso", icon: PenSquare, label: "Crea Corso" },
+  { href: "/dashboard/courses", icon: PenSquare, label: "I miei corsi" },
 ];
 
 const LEVEL_XP: Record<number, number> = {
