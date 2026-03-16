@@ -24,6 +24,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import type { AuthoringCourse } from "../types";
+import { CategoryInput } from "@/components/ui/CategoryInput";
 
 interface CourseSettingsProps {
   course: AuthoringCourse;
@@ -34,11 +35,7 @@ interface CourseSettingsProps {
   onUnpublish: () => Promise<{ error: string | null }>;
 }
 
-const CATEGORY_OPTIONS = [
-  { value: "digital-marketing", label: "Digital Marketing" },
-  { value: "ai", label: "Intelligenza Artificiale" },
-  { value: "sales", label: "Vendite" },
-];
+// Categories are free-form — managed via CategoryInput
 
 const LEVEL_OPTIONS = [
   { value: "base", label: "Base" },
@@ -195,21 +192,12 @@ export function CourseSettings({
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1" htmlFor="course-category">
-                    Categoria
-                  </label>
-                  <select
-                    id="course-category"
-                    value={form.category}
-                    onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
-                  >
-                    {CATEGORY_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
+                <CategoryInput
+                  label="Categoria"
+                  value={form.category}
+                  onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+                  placeholder="Es. Marketing..."
+                />
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1" htmlFor="course-level">
                     Livello

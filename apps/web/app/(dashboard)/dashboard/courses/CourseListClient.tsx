@@ -4,7 +4,7 @@ import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import {
   Plus, Search, BookOpen, Globe, Lock, Edit3, Trash2,
-  Copy, MoreVertical, Clock, Eye, TrendingUp, Sparkles,
+  Copy, MoreVertical, Clock, Eye, TrendingUp, Sparkles, Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -267,6 +267,12 @@ function CourseCard({
                   className="flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
                 >
                   <TrendingUp className="w-3.5 h-3.5" /> Analitiche
+                </Link>
+                <Link
+                  href={`/dashboard/courses/${course.id}/settings`}
+                  className="flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  <Settings className="w-3.5 h-3.5" /> Impostazioni
                 </Link>
                 {course.is_published && (
                   <a

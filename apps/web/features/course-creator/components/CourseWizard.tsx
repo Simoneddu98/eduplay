@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { createCourse } from "../hooks/useCourse";
 import type { CourseWizardData, AIOutline, AIOutlineModule } from "../types";
+import { CategoryInput } from "@/components/ui/CategoryInput";
 
 type WizardStep = "info" | "ai" | "outline" | "ready";
 
@@ -40,11 +41,7 @@ const STEPS: Array<{ id: WizardStep; label: string; icon: React.ElementType }> =
   { id: "ready", label: "Pronto!", icon: Check },
 ];
 
-const CATEGORY_OPTIONS = [
-  { value: "digital-marketing", label: "Digital Marketing", emoji: "📣" },
-  { value: "ai", label: "Intelligenza Artificiale", emoji: "🤖" },
-  { value: "sales", label: "Vendite", emoji: "🛒" },
-];
+// Categories are now free-form via CategoryInput — no hardcoded list
 
 const LEVEL_OPTIONS = [
   { value: "base", label: "Base", desc: "Per chi inizia da zero" },
@@ -63,7 +60,7 @@ export function CourseWizard({ userId, onClose }: CourseWizardProps) {
   const [data, setData] = useState<CourseWizardData>({
     title: "",
     description: "",
-    category: "digital-marketing" as CourseWizardData["category"],
+    category: "" as CourseWizardData["category"],
     level: "base" as CourseWizardData["level"],
     cover_url: "",
     learning_objectives: [],
@@ -211,27 +208,12 @@ export function CourseWizard({ userId, onClose }: CourseWizardProps) {
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Categoria
-                </label>
-                <div className="grid grid-cols-3 gap-3">
-                  {CATEGORY_OPTIONS.map((cat) => (
-                    <button
-                      key={cat.value}
-                      onClick={() => update({ category: cat.value })}
-                      className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
-                        data.category === cat.value
-                          ? "border-purple-400 bg-purple-50"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
-                    >
-                      <span className="text-2xl">{cat.emoji}</span>
-                      <span className="text-xs font-medium text-gray-700">{cat.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <CategoryInput
+                label="Categoria"
+                value={data.category ?? ""}
+                onChange={(v) => update({ category: v as CourseWizardData["category"] })}
+                placeholder="Es. Marketing, Leadership, Python..."
+              />
 
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">

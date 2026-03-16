@@ -95,6 +95,8 @@ export async function updateCourseAction(
     passing_score?: number;
     certificate_on_completion?: boolean;
     estimated_duration_minutes?: number;
+    xp_reward?: number;
+    coin_reward?: number;
   }
 ): Promise<ActionResult> {
   try {
@@ -229,5 +231,33 @@ export async function duplicateCourseAction(courseId: string): Promise<ActionRes
     return { ok: true, data: { id: copy.id } };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Errore imprevisto" };
+  }
+}
+
+// ─── CATEGORY SUGGESTIONS ─────────────────────────────────────
+
+/**
+ * Restituisce le categorie già usate dal trainer (e dal sistema) per
+ * alimentare l'autocomplete di CategoryInput. Nessuna lista hardcoded.
+ */
+export async function getCategorySuggestionsAction(): Promise<ActionResult<string[]>> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { ok: true, data: [] };
+
+    // Fetch distinct categories from all published + trainer's own courses
+    const { data } = await supabase
+      .from("courses")
+      .select("category")
+      .not("category", "is", null)
+      .order("updated_at", { ascending: false });
+
+    const unique = [
+      ...new Set((data ?? []).map((r) => r.category).filter(Boolean) as string[]),
+    ];
+    return { ok: true, data: unique.slice(0, 20) };
+  } catch {
+    return { ok: true, data: [] };
   }
 }
